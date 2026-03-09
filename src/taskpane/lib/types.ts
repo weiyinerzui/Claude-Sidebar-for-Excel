@@ -1,5 +1,28 @@
 import type Anthropic from '@anthropic-ai/sdk';
 
+// ─── API Provider 配置 ────────────────────────────────────────────────────────
+export type ApiProviderType = 'anthropic' | 'custom';
+
+export interface ApiProviderConfig {
+  type: ApiProviderType;
+  apiKey: string;
+  // 自定义模式
+  baseUrl?: string;       // e.g. "https://open.bigmodel.cn/api/paas/v4"
+  modelName?: string;     // e.g. "glm-4-flash"
+  providerName?: string;  // 显示名称，e.g. "智谱 GLM"
+  // 通用
+  systemPrompt?: string;  // 自定义 system prompt（覆盖默认值）
+}
+
+export interface PresetProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
+  apiKeyPlaceholder: string;
+  apiKeyHint?: string;
+}
+
 // File attachment for UI tracking (images and documents)
 export interface ImageAttachment {
   id: string;

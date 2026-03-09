@@ -241,41 +241,41 @@ export const excelTools: ExcelTool[] = [
   },
   {
     name: 'create_pivot_table',
-    description: 'Create a pivot table from a data range in Excel. The pivot table will be placed on a new worksheet.',
+    description: 'Create a pivot table from a data range in Excel. IMPORTANT: Before calling this tool, you MUST first use read_range to get the exact column headers from the source data. Use the EXACT column names as they appear in the header row for rowFields, columnFields, and dataFields. The pivot table will be placed on a new worksheet.',
     input_schema: {
       type: 'object',
       properties: {
         sourceRange: {
           type: 'string',
-          description: 'Source data range for the pivot table (e.g., "A1:D100")',
+          description: 'Source data range for the pivot table, MUST include header row (e.g., "A1:D100"). The first row must contain column headers.',
         },
         destinationSheet: {
           type: 'string',
-          description: 'Name for the new worksheet where the pivot table will be created (optional)',
+          description: 'Name for the new worksheet where the pivot table will be created (optional, auto-generated if not provided)',
         },
         rowFields: {
           type: 'array',
-          description: 'Column names or indices to use as row fields',
+          description: 'EXACT column header names from the source data to use as row grouping fields. Must match the header text exactly.',
           items: {
             type: 'string',
           },
         },
         columnFields: {
           type: 'array',
-          description: 'Column names or indices to use as column fields (optional)',
+          description: 'EXACT column header names from the source data to use as column grouping fields (optional)',
           items: {
             type: 'string',
           },
         },
         dataFields: {
           type: 'array',
-          description: 'Fields to aggregate in the values area',
+          description: 'Numeric fields to aggregate in the values area. Must use EXACT column header names.',
           items: {
             type: 'object',
             properties: {
               field: {
                 type: 'string',
-                description: 'Column name or index',
+                description: 'EXACT column header name of the numeric field to aggregate',
               },
               function: {
                 type: 'string',

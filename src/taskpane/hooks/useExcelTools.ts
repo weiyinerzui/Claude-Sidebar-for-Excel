@@ -244,56 +244,109 @@ export function useExcelTools() {
             const sourceSheet = context.workbook.worksheets.getActiveWorksheet();
             const sourceRange = sourceSheet.getRange(input.sourceRange);
 
-            // Create or get destination worksheet
-            const destSheetName = input.destinationSheet || 'Pivot Table';
+            // Generate unique destination sheet name
+            const destSheetName = input.destinationSheet || `数据透视表_${Date.now()}`;
+
+            // Check if destination sheet already exists
+            const sheets = context.workbook.worksheets;
+            sheets.load('items/name');
+            await context.sync();
+
+            const existingSheetNames = sheets.items.map(s => s.name);
             let destSheet: Excel.Worksheet;
 
-            try {
-              destSheet = context.workbook.worksheets.getItem(destSheetName);
-            } catch {
-              destSheet = context.workbook.worksheets.add(destSheetName);
+            // Delete existing sheet with same name or create new one
+            if (existingSheetNames.includes(destSheetName)) {
+              const existingSheet = sheets.getItem(destSheetName);
+              existingSheet.delete();
+              await context.sync();
             }
+
+            destSheet = sheets.add(destSheetName);
+
+            // Load source range to get headers for field matching
+            sourceRange.load('values');
+            await context.sync();
+
+            const headers = sourceRange.values[0] as string[];
+            console.log('[PivotTable] Source headers:', headers);
 
             // Create the pivot table
             const pivotTable = context.workbook.pivotTables.add(
-              'PivotTable1',
+              `PivotTable_${Date.now()}`,
               sourceRange,
               destSheet.getRange('A1')
             );
 
+            // Load hierarchies to access fields
+            pivotTable.hierarchies.load('items/name');
+            await context.sync();
+
+            const availableHierarchies = pivotTable.hierarchies.items.map(h => h.name);
+            console.log('[PivotTable] Available hierarchies:', availableHierarchies);
+
             // Add row fields
             for (const field of input.rowFields || []) {
-              const hierarchy = pivotTable.rowHierarchies.add(pivotTable.hierarchies.getItem(field));
-              hierarchy.fields.getItem(field).sortByLabels(Excel.SortBy.ascending);
+              // Try to find matching hierarchy (exact match or case-insensitive)
+              let hierarchyName = availableHierarchies.find(
+                h => h === field || h.toLowerCase() === field.toLowerCase()
+              );
+
+              if (hierarchyName) {
+                pivotTable.rowHierarchies.add(pivotTable.hierarchies.getItem(hierarchyName));
+                console.log(`[PivotTable] Added row field: ${hierarchyName}`);
+              } else {
+                console.warn(`[PivotTable] Row field "${field}" not found. Available: ${availableHierarchies.join(', ')}`);
+              }
             }
 
             // Add column fields (optional)
             if (input.columnFields && input.columnFields.length > 0) {
               for (const field of input.columnFields) {
-                pivotTable.columnHierarchies.add(pivotTable.hierarchies.getItem(field));
+                const hierarchyName = availableHierarchies.find(
+                  h => h === field || h.toLowerCase() === field.toLowerCase()
+                );
+                if (hierarchyName) {
+                  pivotTable.columnHierarchies.add(pivotTable.hierarchies.getItem(hierarchyName));
+                }
               }
             }
 
             // Add data fields
             for (const dataField of input.dataFields || []) {
-              const pivotField = pivotTable.dataHierarchies.add(
-                pivotTable.hierarchies.getItem(dataField.field)
+              const hierarchyName = availableHierarchies.find(
+                h => h === dataField.field || h.toLowerCase() === dataField.field.toLowerCase()
               );
 
-              // Set aggregation function
-              const summarizeBy = dataField.function || 'Sum';
-              pivotField.summarizeBy = Excel.AggregationFunction[summarizeBy as keyof typeof Excel.AggregationFunction];
+              if (hierarchyName) {
+                const pivotField = pivotTable.dataHierarchies.add(
+                  pivotTable.hierarchies.getItem(hierarchyName)
+                );
+
+                // Set aggregation function
+                const summarizeBy = dataField.function || 'Sum';
+                pivotField.summarizeBy = Excel.AggregationFunction[summarizeBy as keyof typeof Excel.AggregationFunction];
+                console.log(`[PivotTable] Added data field: ${hierarchyName} (${summarizeBy})`);
+              } else {
+                console.warn(`[PivotTable] Data field "${dataField.field}" not found. Available: ${availableHierarchies.join(', ')}`);
+              }
             }
 
+            await context.sync();
+
+            // Activate the destination sheet
+            destSheet.activate();
             await context.sync();
 
             return {
               success: true,
               data: {
-                pivotTableName: 'PivotTable1',
+                pivotTableName: `PivotTable_${Date.now()}`,
                 destinationSheet: destSheetName,
                 rowFields: input.rowFields,
                 dataFields: input.dataFields,
+                availableHierarchies,
+                headers,
               },
             };
           }

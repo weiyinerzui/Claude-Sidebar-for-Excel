@@ -8,20 +8,20 @@ import ExcelContext from './ExcelContext';
 import SuggestionChips from './SuggestionChips';
 import ToolsMenu from './ToolsMenu';
 import { ToolCallIndicator } from './ToolCallIndicator';
-import { useClaudeChat } from '../hooks/useClaudeChat';
+import { useChat } from '../hooks/useChat';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useScreenReaderAnnouncement } from '../hooks/useScreenReaderAnnouncement';
 import { useExcelContext } from '../hooks/useExcelContext';
 import { useSmartSuggestions } from '../hooks/useSmartSuggestions';
-import type { ImageAttachment } from '../lib/types';
+import type { ImageAttachment, ApiProviderConfig } from '../lib/types';
 import '../styles/chat.css';
 
 interface ChatInterfaceProps {
-  apiKey: string;
+  config: ApiProviderConfig;
+  onConfigChange: (config: ApiProviderConfig) => void;
 }
 
-export default function ChatInterface({ apiKey: initialApiKey }: ChatInterfaceProps) {
-  const [apiKey, setApiKey] = useState(initialApiKey);
+export default function ChatInterface({ config, onConfigChange }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -30,7 +30,7 @@ export default function ChatInterface({ apiKey: initialApiKey }: ChatInterfacePr
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
 
-  const { messages, isLoading, activeToolCalls, sendMessage, clearMessages, regenerateMessage, stopGeneration } = useClaudeChat(apiKey);
+  const { messages, isLoading, activeToolCalls, sendMessage, clearMessages, regenerateMessage, stopGeneration } = useChat(config);
   const { announce } = useScreenReaderAnnouncement();
   const { context: excelContext, isLoading: isExcelLoading } = useExcelContext();
   const suggestions = useSmartSuggestions(excelContext);
@@ -279,8 +279,8 @@ export default function ChatInterface({ apiKey: initialApiKey }: ChatInterfacePr
       <Settings
         open={showSettings}
         onClose={() => setShowSettings(false)}
-        apiKey={apiKey}
-        onApiKeyChange={setApiKey}
+        config={config}
+        onConfigChange={onConfigChange}
       />
     </div>
   );

@@ -1,25 +1,60 @@
 import { useState } from 'react';
 import { Dismiss24Regular } from '@fluentui/react-icons';
 import { isMac } from '../hooks/useKeyboardShortcuts';
+import type { ApiProviderConfig } from '../lib/types';
+import { PRESET_PROVIDERS, DEFAULT_SYSTEM_PROMPT } from '../lib/providers';
 import '../styles/settings.css';
 
 interface SettingsProps {
   open: boolean;
   onClose: () => void;
-  apiKey: string;
-  onApiKeyChange: (key: string) => void;
+  config: ApiProviderConfig;
+  onConfigChange: (config: ApiProviderConfig) => void;
 }
 
-export default function Settings({ open, onClose, apiKey, onApiKeyChange }: SettingsProps) {
+export default function Settings({ open, onClose, config, onConfigChange }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<'shortcuts' | 'settings' | 'about'>('shortcuts');
-  const [localApiKey, setLocalApiKey] = useState(apiKey);
+  const [localConfig, setLocalConfig] = useState<ApiProviderConfig>({ ...config });
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // 当 open 状态从 false->true 时同步最新 config
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open && !prevOpen) {
+    setLocalConfig({ ...config });
+    setPrevOpen(true);
+  }
+  if (!open && prevOpen) {
+    setPrevOpen(false);
+  }
 
   if (!open) return null;
 
-  const handleSaveApiKey = () => {
-    onApiKeyChange(localApiKey);
+  const handleSave = () => {
+    onConfigChange(localConfig);
     onClose();
+  };
+
+  /** 根据 preset id 更新相关字段 */
+  const applyPreset = (presetId: string) => {
+    const preset = PRESET_PROVIDERS.find((p) => p.id === presetId);
+    if (!preset) return;
+    if (presetId === 'custom') {
+      setLocalConfig((prev) => ({
+        ...prev,
+        type: 'custom',
+        providerName: '自定义',
+        baseUrl: prev.baseUrl ?? '',
+        modelName: prev.modelName ?? '',
+      }));
+    } else {
+      setLocalConfig((prev) => ({
+        ...prev,
+        type: 'custom',
+        providerName: preset.name,
+        baseUrl: preset.baseUrl,
+        modelName: prev.modelName && prev.providerName === preset.name ? prev.modelName : preset.defaultModel,
+      }));
+    }
   };
 
   const shortcuts = [
@@ -31,6 +66,15 @@ export default function Settings({ open, onClose, apiKey, onApiKeyChange }: Sett
     { keys: '/', description: 'Open command palette' },
     { keys: 'Esc', description: 'Clear input or close palette' },
   ];
+
+  /** 判断当前选中的是哪个预设（按 baseUrl 匹配） */
+  const activePresetId = (() => {
+    if (localConfig.type === 'anthropic') return 'anthropic';
+    const match = PRESET_PROVIDERS.find(
+      (p) => p.id !== 'custom' && p.baseUrl === localConfig.baseUrl
+    );
+    return match?.id ?? 'custom';
+  })();
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -75,7 +119,7 @@ export default function Settings({ open, onClose, apiKey, onApiKeyChange }: Sett
           {activeTab === 'shortcuts' ? (
             <div className="shortcuts-section">
               <p className="shortcuts-description">
-                Use these keyboard shortcuts to work faster with OCTOBER
+                Use these keyboard shortcuts to work faster
               </p>
               <div className="shortcuts-list">
                 {shortcuts.map((shortcut, index) => (
@@ -88,21 +132,63 @@ export default function Settings({ open, onClose, apiKey, onApiKeyChange }: Sett
             </div>
           ) : activeTab === 'settings' ? (
             <div className="settings-section">
+
+              {/* ── Provider 选择 ── */}
               <div className="setting-group">
-                <label htmlFor="api-key-input" className="setting-label">
-                  Anthropic API Key
-                </label>
+                <label className="setting-label">AI 服务商</label>
+                <p className="setting-description">选择使用的 AI 服务商或自定义接口</p>
+                <div className="provider-grid">
+                  {/* Anthropic 模式 */}
+                  <button
+                    type="button"
+                    className={`provider-card ${localConfig.type === 'anthropic' ? 'active' : ''}`}
+                    onClick={() => setLocalConfig((prev) => ({ ...prev, type: 'anthropic' }))}
+                  >
+                    <span className="provider-icon">🤖</span>
+                    <span className="provider-name">Anthropic</span>
+                  </button>
+                  {/* 预设服务商 */}
+                  {PRESET_PROVIDERS.filter((p) => p.id !== 'custom').map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`provider-card ${localConfig.type === 'custom' && activePresetId === preset.id ? 'active' : ''}`}
+                      onClick={() => applyPreset(preset.id)}
+                    >
+                      <span className="provider-name">{preset.name}</span>
+                    </button>
+                  ))}
+                  {/* 自定义 */}
+                  <button
+                    type="button"
+                    className={`provider-card ${localConfig.type === 'custom' && activePresetId === 'custom' ? 'active' : ''}`}
+                    onClick={() => applyPreset('custom')}
+                  >
+                    <span className="provider-name">自定义</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ── API Key ── */}
+              <div className="setting-group">
+                <label htmlFor="settings-api-key" className="setting-label">API Key</label>
                 <p className="setting-description">
-                  Your API key is stored locally in your browser and never sent to any server except Anthropic's API.
+                  {localConfig.type === 'anthropic'
+                    ? 'Anthropic API Key，以 sk-ant- 开头'
+                    : '对应服务商的 API Key'}
                 </p>
                 <div className="api-key-input-group">
                   <input
-                    id="api-key-input"
+                    id="settings-api-key"
                     type={showApiKey ? 'text' : 'password'}
                     className="api-key-input"
-                    value={localApiKey}
-                    onChange={(e) => setLocalApiKey(e.target.value)}
-                    placeholder="sk-ant-..."
+                    value={localConfig.apiKey}
+                    onChange={(e) => setLocalConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+                    placeholder={
+                      localConfig.type === 'anthropic'
+                        ? 'sk-ant-...'
+                        : PRESET_PROVIDERS.find((p) => p.id === activePresetId)?.apiKeyPlaceholder ?? '输入 API Key...'
+                    }
                   />
                   <button
                     className="toggle-visibility-button"
@@ -113,78 +199,89 @@ export default function Settings({ open, onClose, apiKey, onApiKeyChange }: Sett
                     {showApiKey ? 'Hide' : 'Show'}
                   </button>
                 </div>
-                <div className="setting-actions">
-                  <button
-                    className="save-button"
-                    onClick={handleSaveApiKey}
-                    type="button"
-                    disabled={!localApiKey.trim()}
-                  >
-                    Save API Key
-                  </button>
-                  <a
-                    href="https://console.anthropic.com/account/keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="get-key-link"
-                  >
-                    Get API Key
-                  </a>
-                </div>
+              </div>
+
+              {/* ── 自定义模式：Base URL + Model ── */}
+              {localConfig.type === 'custom' && (
+                <>
+                  <div className="setting-group">
+                    <label htmlFor="settings-base-url" className="setting-label">Base URL</label>
+                    <p className="setting-description">API 接口地址（OpenAI 兼容格式）</p>
+                    <input
+                      id="settings-base-url"
+                      type="text"
+                      className="api-key-input"
+                      value={localConfig.baseUrl ?? ''}
+                      onChange={(e) => setLocalConfig((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                      placeholder="https://api.example.com/v1"
+                    />
+                  </div>
+
+                  <div className="setting-group">
+                    <label htmlFor="settings-model" className="setting-label">模型名称</label>
+                    <p className="setting-description">要使用的模型标识符</p>
+                    <input
+                      id="settings-model"
+                      type="text"
+                      className="api-key-input"
+                      value={localConfig.modelName ?? ''}
+                      onChange={(e) => setLocalConfig((prev) => ({ ...prev, modelName: e.target.value }))}
+                      placeholder={PRESET_PROVIDERS.find((p) => p.id === activePresetId)?.defaultModel ?? 'gpt-4o-mini'}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* ── System Prompt ── */}
+              <div className="setting-group">
+                <label htmlFor="settings-system-prompt" className="setting-label">System Prompt</label>
+                <p className="setting-description">自定义 AI 的行为指令（留空使用默认值）</p>
+                <textarea
+                  id="settings-system-prompt"
+                  className="system-prompt-textarea"
+                  value={localConfig.systemPrompt ?? ''}
+                  onChange={(e) => setLocalConfig((prev) => ({ ...prev, systemPrompt: e.target.value || undefined }))}
+                  placeholder={DEFAULT_SYSTEM_PROMPT}
+                  rows={6}
+                />
+                <button
+                  type="button"
+                  className="reset-prompt-button"
+                  onClick={() => setLocalConfig((prev) => ({ ...prev, systemPrompt: undefined }))}
+                >
+                  恢复默认
+                </button>
+              </div>
+
+              <div className="setting-actions">
+                <button
+                  className="save-button"
+                  onClick={handleSave}
+                  type="button"
+                  disabled={!localConfig.apiKey.trim()}
+                >
+                  保存设置
+                </button>
               </div>
             </div>
           ) : (
             <div className="about-section">
               <div className="about-header">
-                <h3 className="about-title">OCTOBER Sidebar for Excel</h3>
+                <h3 className="about-title">Claude Sidebar for Excel</h3>
                 <p className="about-version">Version 1.0.0</p>
               </div>
               <div className="about-content">
                 <p className="about-description">
-                  An unofficial AI assistant for Excel, powered by Anthropic's Claude AI. OCTOBER brings intelligent spreadsheet analysis and automation to your workflow.
+                  An unofficial AI assistant for Excel, powered by Claude and OpenAI-compatible APIs.
                 </p>
                 <div className="about-credits">
                   <h4 className="credits-title">Built by</h4>
                   <div className="credit-item">
                     <span className="credit-name">James Frewin</span>
                     <div className="credit-links">
-                      <a
-                        href="https://twitter.com/jamesfrewin1"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="credit-link"
-                      >
-                        Twitter
-                      </a>
-                      <a
-                        href="https://linkedin.com/in/jamesfrewin"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="credit-link"
-                      >
-                        LinkedIn
-                      </a>
-                      <a
-                        href="https://github.com/heyimjames"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="credit-link"
-                      >
-                        GitHub
-                      </a>
-                    </div>
-                  </div>
-                  <div className="credit-item">
-                    <span className="credit-name">OCTOBER Design Studio</span>
-                    <div className="credit-links">
-                      <a
-                        href="https://www.octoberwip.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="credit-link"
-                      >
-                        Visit Website
-                      </a>
+                      <a href="https://twitter.com/jamesfrewin1" target="_blank" rel="noopener noreferrer" className="credit-link">Twitter</a>
+                      <a href="https://linkedin.com/in/jamesfrewin" target="_blank" rel="noopener noreferrer" className="credit-link">LinkedIn</a>
+                      <a href="https://github.com/heyimjames" target="_blank" rel="noopener noreferrer" className="credit-link">GitHub</a>
                     </div>
                   </div>
                 </div>
