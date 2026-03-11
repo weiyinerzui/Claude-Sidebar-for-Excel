@@ -75,7 +75,7 @@ export interface ExcelTool {
   description: string;
   input_schema: {
     type: 'object';
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
   };
 }
@@ -84,6 +84,49 @@ export type AnthropicTool = Anthropic.Tool;
 
 export interface ToolExecutionResult {
   success: boolean;
-  data?: any;
+  data?: unknown;
   error?: string;
+}
+
+// ─── Anthropic SDK 兼容类型 ───────────────────────────────────────────────────
+
+/**
+ * Tool definition compatible with Anthropic SDK
+ * This replaces `as any` casts with proper typing
+ */
+export interface AnthropicToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, AnthropicToolProperty>;
+    required?: string[];
+  };
+}
+
+export interface AnthropicToolProperty {
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null';
+  description?: string;
+  enum?: string[];
+  items?: AnthropicToolProperty;
+  properties?: Record<string, AnthropicToolProperty>;
+  required?: string[];
+}
+
+/**
+ * Message content block for Anthropic SDK
+ */
+export type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64' | 'url'; media_type: string; data?: string; url?: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string };
+
+/**
+ * Message for Anthropic SDK conversation
+ */
+export interface AnthropicMessage {
+  role: 'user' | 'assistant';
+  content: string | AnthropicContentBlock[];
 }

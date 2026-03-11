@@ -95,10 +95,10 @@ export function useClaudeChat(config: ApiProviderConfig) {
         });
 
         // Prepare conversation history for Claude
-        const conversationMessages = [...messages, userMessage].map((m) => ({
-          role: m.role,
+        const conversationMessages: Anthropic.MessageParam[] = [...messages, userMessage].map((m) => ({
+          role: m.role as 'user' | 'assistant',
           content: m.content,
-        }));
+        } as Anthropic.MessageParam));
 
         // Generate ID for streaming message but don't create it yet
         const streamingMessageId = crypto.randomUUID();
@@ -110,8 +110,11 @@ export function useClaudeChat(config: ApiProviderConfig) {
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 4096,
             system: systemPrompt,
-            tools: tools as any,
-            messages: conversationMessages as any,
+            tools: tools as Anthropic.Tool[],
+            messages: conversationMessages.map(m => ({
+              role: m.role,
+              content: m.content,
+            })) as Anthropic.MessageParam[],
             thinking: {
               type: 'enabled',
               budget_tokens: 2000,
@@ -123,6 +126,7 @@ export function useClaudeChat(config: ApiProviderConfig) {
         // Handle stream events
         for await (const event of stream) {
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            const textDelta = event.delta as Anthropic.TextDelta;
             // Create the message on first text delta
             if (!messageCreated) {
               setMessages((prev) => [
@@ -130,7 +134,7 @@ export function useClaudeChat(config: ApiProviderConfig) {
                 {
                   id: streamingMessageId,
                   role: 'assistant',
-                  content: (event.delta as any).text,
+                  content: textDelta.text,
                   isStreaming: true,
                   isAnimating: true,
                 },
@@ -140,7 +144,7 @@ export function useClaudeChat(config: ApiProviderConfig) {
               // Update existing message
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === streamingMessageId ? { ...m, content: m.content + (event.delta as any).text } : m
+                  m.id === streamingMessageId ? { ...m, content: m.content + textDelta.text } : m
                 )
               );
             }
@@ -161,7 +165,7 @@ export function useClaudeChat(config: ApiProviderConfig) {
         while (response.stop_reason === 'tool_use') {
           // Find all tool_use blocks in the response
           const toolUseBlocks = response.content.filter(
-            (block: any) => block.type === 'tool_use'
+            (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
           );
 
           if (toolUseBlocks.length === 0) break;
@@ -169,11 +173,11 @@ export function useClaudeChat(config: ApiProviderConfig) {
           // Add assistant message with tool_use to conversation history
           conversationMessages.push({
             role: 'assistant',
-            content: response.content as any,
+            content: response.content as Anthropic.ContentBlock[],
           });
 
           // Add active tool calls to state
-          const newToolCalls: ToolCall[] = toolUseBlocks.map((block: any) => ({
+          const newToolCalls: ToolCall[] = toolUseBlocks.map((block) => ({
             id: block.id,
             name: block.name,
             status: 'running' as const,
@@ -182,8 +186,8 @@ export function useClaudeChat(config: ApiProviderConfig) {
 
           // Execute all tools and collect results
           const toolResults = await Promise.all(
-            toolUseBlocks.map(async (toolUseBlock: any) => {
-              const result = await executeTool(toolUseBlock.name, toolUseBlock.input);
+            toolUseBlocks.map(async (toolUseBlock) => {
+              const result = await executeTool(toolUseBlock.name, toolUseBlock.input as Record<string, unknown>);
               return {
                 type: 'tool_result' as const,
                 tool_use_id: toolUseBlock.id,
@@ -198,7 +202,7 @@ export function useClaudeChat(config: ApiProviderConfig) {
           // Add tool results as user message
           conversationMessages.push({
             role: 'user',
-            content: toolResults as any,
+            content: toolResults as Anthropic.ToolResultBlockParam[],
           });
 
           // Continue streaming with tool results
@@ -207,8 +211,11 @@ export function useClaudeChat(config: ApiProviderConfig) {
               model: 'claude-haiku-4-5-20251001',
               max_tokens: 4096,
               system: systemPrompt,
-              tools: tools as any,
-              messages: conversationMessages as any,
+              tools: tools as Anthropic.Tool[],
+              messages: conversationMessages.map(m => ({
+                role: m.role,
+                content: m.content,
+              })) as Anthropic.MessageParam[],
               thinking: {
                 type: 'enabled',
                 budget_tokens: 2000,

@@ -4,11 +4,26 @@ import ChatInterface from './components/ChatInterface';
 import ApiKeySetup from './components/ApiKeySetup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { ApiProviderConfig } from './lib/types';
+import { safeJsonParse } from './utils/json';
+import { logError } from './utils/errorHandling';
 import './styles/design-tokens.css';
 
 /* global Office */
 
 const SETTINGS_KEY = 'api_provider_config';
+
+/**
+ * Type guard to validate ApiProviderConfig structure
+ */
+function isValidApiProviderConfig(data: unknown): data is ApiProviderConfig {
+  if (typeof data !== 'object' || data === null) return false;
+  const config = data as Record<string, unknown>;
+  return (
+    (config.type === 'anthropic' || config.type === 'custom') &&
+    typeof config.apiKey === 'string' &&
+    config.apiKey.length > 0
+  );
+}
 
 export default function App() {
   const [config, setConfig] = useState<ApiProviderConfig | null>(null);
@@ -18,17 +33,22 @@ export default function App() {
     try {
       // 优先读取新格式配置
       const saved = Office.context.document.settings.get(SETTINGS_KEY);
-      if (saved) {
-        setConfig(JSON.parse(saved as string) as ApiProviderConfig);
+      if (saved && typeof saved === 'string') {
+        const result = safeJsonParse<ApiProviderConfig>(saved);
+        if (result.success && isValidApiProviderConfig(result.data)) {
+          setConfig(result.data);
+        } else {
+          logError('App.loadConfig', result.error || 'Invalid config structure');
+        }
       } else {
         // 向下兼容旧版 anthropic_api_key
         const legacyKey = Office.context.document.settings.get('anthropic_api_key');
-        if (legacyKey) {
-          setConfig({ type: 'anthropic', apiKey: legacyKey as string });
+        if (legacyKey && typeof legacyKey === 'string') {
+          setConfig({ type: 'anthropic', apiKey: legacyKey });
         }
       }
     } catch (error) {
-      console.error('Error loading config:', error);
+      logError('App.loadConfig', error);
     }
     setIsReady(true);
   }, []);

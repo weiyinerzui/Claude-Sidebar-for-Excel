@@ -1,16 +1,91 @@
 import { useState, useCallback } from 'react';
-import type { ChatMessage, ImageAttachment, ApiProviderConfig } from '../lib/types';
+import type { ChatMessage, ImageAttachment, ApiProviderConfig, ExcelTool } from '../lib/types';
 import type { ExcelContext } from './useExcelContext';
 import { useExcelTools } from './useExcelTools';
 import type { ToolCall } from '../components/ToolCallIndicator';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/providers';
+import { safeJsonParse } from '../utils/json';
+import { logError, isAbortError } from '../utils/errorHandling';
+
+// SSE stream configuration constants
+const SSE_TIMEOUT_MS = 120000; // 2 minutes timeout for SSE stream
+const SSE_MAX_ITERATIONS = 1000000; // Safety limit to prevent infinite loops
+
+/**
+ * OpenAI function definition format
+ */
+interface OpenAIFunction {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+}
+
+interface OpenAITool {
+    type: 'function';
+    function: OpenAIFunction;
+}
+
+/**
+ * OpenAI stream chunk format
+ */
+interface OpenAIStreamChunk {
+    choices?: Array<{
+        delta?: {
+            content?: string;
+            tool_calls?: Array<{
+                index?: number;
+                id?: string;
+                function?: {
+                    name?: string;
+                    arguments?: string;
+                };
+            }>;
+        };
+        finish_reason?: string;
+    }>;
+}
+
+/**
+ * OpenAI tool call format
+ */
+interface OpenAIToolCall {
+    id: string;
+    type: 'function';
+    function: {
+        name: string;
+        arguments: string;
+    };
+}
+
+/**
+ * OpenAI message format for conversation history
+ */
+interface OpenAIMessage {
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string | null;
+    tool_calls?: OpenAIToolCall[];
+    tool_call_id?: string;
+}
+
+/**
+ * OpenAI content part for multimodal messages
+ */
+interface OpenAITextPart {
+    type: 'text';
+    text: string;
+}
+
+interface OpenAIImagePart {
+    type: 'image_url';
+    image_url: { url: string };
+}
 
 /**
  * 将 Excel tools（Anthropic 格式）转换为 OpenAI function calling 格式
  */
-function toOpenAITools(tools: any[]): any[] {
+function toOpenAITools(tools: ExcelTool[]): OpenAITool[] {
     return tools.map((t) => ({
-        type: 'function',
+        type: 'function' as const,
         function: {
             name: t.name,
             description: t.description,
@@ -21,16 +96,36 @@ function toOpenAITools(tools: any[]): any[] {
 
 /**
  * 解析 SSE 流，逐行 yield data 字符串
+ * Includes timeout and iteration limits for safety
  */
-async function* readSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
+async function* readSSEStream(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    signal: AbortSignal
+): AsyncGenerator<string, void, unknown> {
     const decoder = new TextDecoder();
     let buffer = '';
-    while (true) {
+    let iterations = 0;
+    const startTime = Date.now();
+
+    while (iterations < SSE_MAX_ITERATIONS) {
+        // Check timeout
+        if (Date.now() - startTime > SSE_TIMEOUT_MS) {
+            throw new Error('SSE stream timeout exceeded');
+        }
+
+        // Check abort signal
+        if (signal.aborted) {
+            throw new DOMException('Stream aborted', 'AbortError');
+        }
+
         const { done, value } = await reader.read();
         if (done) break;
+
+        iterations++;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
+
         for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith('data:')) {
@@ -38,6 +133,10 @@ async function* readSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
                 if (data && data !== '[DONE]') yield data;
             }
         }
+    }
+
+    if (iterations >= SSE_MAX_ITERATIONS) {
+        logError('SSE.readSSEStream', `Max iterations (${SSE_MAX_ITERATIONS}) reached`);
     }
 }
 
@@ -63,17 +162,18 @@ async function* callOpenAIStream(
 
     if (!response.ok) {
         let errMsg = `HTTP ${response.status}`;
-        try {
-            const errJson = await response.json();
-            errMsg = errJson?.error?.message ?? errMsg;
-        } catch {
-            // ignore
+        const errResult = safeJsonParse<{ error?: { message?: string } }>(await response.text());
+        if (errResult.success && errResult.data?.error?.message) {
+            errMsg = errResult.data.error.message;
         }
         throw new Error(errMsg);
     }
 
-    const reader = response.body!.getReader();
-    yield* readSSEStream(reader);
+    if (!response.body) {
+        throw new Error('Response body is null');
+    }
+    const reader = response.body.getReader();
+    yield* readSSEStream(reader, signal);
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -88,7 +188,7 @@ export function useOpenAIChat(config: ApiProviderConfig) {
     const systemPrompt = config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const baseUrl = config.baseUrl ?? '';
     const modelName = config.modelName ?? 'gpt-4o-mini';
-    const openAITools = toOpenAITools(tools as any[]);
+    const openAITools = toOpenAITools(tools);
 
     const sendMessage = useCallback(
         async (content: string, excelContext?: ExcelContext, attachments?: ImageAttachment[]) => {
@@ -101,9 +201,9 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             }
 
             // OpenAI 格式的 content
-            let msgContent: any;
+            let msgContent: string | OpenAITextPart[] | (OpenAITextPart | OpenAIImagePart)[];
             if (attachments && attachments.length > 0) {
-                const parts: any[] = [];
+                const parts: (OpenAITextPart | OpenAIImagePart)[] = [];
                 if (textContent) parts.push({ type: 'text', text: textContent });
                 for (const att of attachments) {
                     if (att.fileType === 'image') {
@@ -127,7 +227,7 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             const userMessage: ChatMessage = {
                 id: crypto.randomUUID(),
                 role: 'user',
-                content: msgContent,
+                content: msgContent as string,
                 attachments,
             };
 
@@ -138,9 +238,9 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             setAbortController(controller);
 
             // 构建对话历史（OpenAI 格式）
-            const history: any[] = [...messages, userMessage].map((m) => ({
-                role: m.role,
-                content: m.content,
+            const history: OpenAIMessage[] = [...messages, userMessage].map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                content: typeof m.content === 'string' ? m.content : null,
             }));
 
             const streamingMessageId = crypto.randomUUID();
@@ -150,26 +250,28 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             try {
                 // ── 第一轮请求 ──
                 let done = false;
-                let pendingToolCalls: any[] = [];
+                let pendingToolCalls: OpenAIToolCall[] = [];
 
                 while (!done) {
-                    const requestBody: any = {
+                    const requestBody = {
                         model: modelName,
-                        messages: [{ role: 'system', content: systemPrompt }, ...history],
+                        messages: [{ role: 'system' as const, content: systemPrompt }, ...history],
                         tools: openAITools,
-                        tool_choice: 'auto',
+                        tool_choice: 'auto' as const,
                     };
 
                     pendingToolCalls = [];
-                    let toolCallAccumulators: Record<string, any> = {};
+                    let toolCallAccumulators: Record<number, OpenAIToolCall> = {};
 
                     for await (const raw of callOpenAIStream(baseUrl, config.apiKey, requestBody, controller.signal)) {
-                        let chunk: any;
-                        try {
-                            chunk = JSON.parse(raw);
-                        } catch {
+                        const chunkResult = safeJsonParse<OpenAIStreamChunk>(raw);
+                        if (!chunkResult.success) {
+                            logError('OpenAI.parseChunk', chunkResult.error);
                             continue;
                         }
+                        const chunk = chunkResult.data;
+
+                        if (!chunk) continue;
 
                         const choice = chunk.choices?.[0];
                         if (!choice) continue;
@@ -234,8 +336,11 @@ export function useOpenAIChat(config: ApiProviderConfig) {
                         // 执行所有 tools
                         const toolResults = await Promise.all(
                             pendingToolCalls.map(async (tc) => {
-                                let args: any = {};
-                                try { args = JSON.parse(tc.function.arguments); } catch { /* ignore */ }
+                                const argsResult = safeJsonParse<Record<string, unknown>>(tc.function.arguments);
+                                const args = argsResult.success ? argsResult.data : {};
+                                if (!argsResult.success) {
+                                    logError('OpenAI.parseToolArgs', argsResult.error);
+                                }
                                 const result = await executeTool(tc.function.name, args);
                                 return {
                                     role: 'tool' as const,
@@ -268,16 +373,17 @@ export function useOpenAIChat(config: ApiProviderConfig) {
                                 const text =
                                     typeof m.content === 'string'
                                         ? m.content
-                                        : (m.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
+                                        : m.content.filter((b): b is { type: 'text'; text: string } => b.type === 'text').map((b) => b.text).join('\n');
                                 return { ...m, content: text, attachments: undefined };
                             }
                             return m;
                         })
                     );
                 }
-            } catch (error: any) {
-                console.error('OpenAI chat error:', error);
-                if (error.name === 'AbortError' || controller.signal.aborted) {
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                logError('OpenAI.chat', err);
+                if (isAbortError(error) || controller.signal.aborted) {
                     setMessages((prev) =>
                         prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false, isAnimating: false } : m))
                     );
@@ -291,7 +397,7 @@ export function useOpenAIChat(config: ApiProviderConfig) {
                         {
                             id: crypto.randomUUID(),
                             role: 'assistant',
-                            content: `I encountered an error: ${error.message || 'Unknown error'}. Please check your API key and Base URL.`,
+                            content: `I encountered an error: ${err.message}. Please check your API key and Base URL.`,
                         },
                     ]);
                 }

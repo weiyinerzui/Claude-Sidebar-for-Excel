@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import type { ChatMessage } from '../lib/types';
 import CodeBlock from './CodeBlock';
 import MessageActions from './MessageActions';
@@ -49,12 +50,14 @@ export default function Message({ message, onRegenerate }: MessageProps) {
           ) : (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeSanitize]}
               components={{
-                code({ node, inline, className, children, ...props }) {
+                code({ className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
                   const codeString = String(children).replace(/\n$/, '');
+                  const isInline = !className && codeString.indexOf('\n') === -1;
 
-                  return !inline ? (
+                  return !isInline ? (
                     <CodeBlock code={codeString} language={match ? match[1] : 'text'} />
                   ) : (
                     <code className={className} {...props}>
