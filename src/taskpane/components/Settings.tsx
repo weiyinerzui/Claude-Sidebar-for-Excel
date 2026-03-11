@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Dismiss24Regular } from '@fluentui/react-icons';
+import { Dismiss24Regular, CheckmarkCircle16Regular, DismissCircle16Regular, SpinnerIos16Regular } from '@fluentui/react-icons';
 import { isMac } from '../hooks/useKeyboardShortcuts';
 import type { ApiProviderConfig } from '../lib/types';
 import { PRESET_PROVIDERS, DEFAULT_SYSTEM_PROMPT } from '../lib/providers';
+import { testApiConnection } from '../utils/apiTest';
 import '../styles/settings.css';
 
 interface SettingsProps {
@@ -16,6 +17,8 @@ export default function Settings({ open, onClose, config, onConfigChange }: Sett
   const [activeTab, setActiveTab] = useState<'shortcuts' | 'settings' | 'about'>('shortcuts');
   const [localConfig, setLocalConfig] = useState<ApiProviderConfig>({ ...config });
   const [showApiKey, setShowApiKey] = useState(false);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState<string>('');
 
   // 当 open 状态从 false->true 时同步最新 config
   const [prevOpen, setPrevOpen] = useState(false);
@@ -32,6 +35,36 @@ export default function Settings({ open, onClose, config, onConfigChange }: Sett
   const handleSave = () => {
     onConfigChange(localConfig);
     onClose();
+  };
+
+  /** 测试 API 连接 */
+  const handleTestConnection = async () => {
+    if (!localConfig.apiKey.trim()) return;
+
+    // Custom 模式需要 Base URL
+    if (localConfig.type === 'custom' && !localConfig.baseUrl?.trim()) {
+      setTestStatus('error');
+      setTestMessage('请输入 Base URL');
+      setTimeout(() => {
+        setTestStatus('idle');
+        setTestMessage('');
+      }, 3000);
+      return;
+    }
+
+    setTestStatus('testing');
+    setTestMessage('');
+
+    const result = await testApiConnection(localConfig);
+
+    setTestStatus(result.success ? 'success' : 'error');
+    setTestMessage(result.message);
+
+    // 3秒后自动重置状态
+    setTimeout(() => {
+      setTestStatus('idle');
+      setTestMessage('');
+    }, 3000);
   };
 
   /** 根据 preset id 更新相关字段 */
@@ -255,6 +288,31 @@ export default function Settings({ open, onClose, config, onConfigChange }: Sett
 
               <div className="setting-actions">
                 <button
+                  className="test-button"
+                  onClick={handleTestConnection}
+                  type="button"
+                  disabled={!localConfig.apiKey.trim() || testStatus === 'testing'}
+                >
+                  {testStatus === 'testing' ? (
+                    <>
+                      <SpinnerIos16Regular className="spinning" />
+                      测试中...
+                    </>
+                  ) : testStatus === 'success' ? (
+                    <>
+                      <CheckmarkCircle16Regular />
+                      连接成功
+                    </>
+                  ) : testStatus === 'error' ? (
+                    <>
+                      <DismissCircle16Regular />
+                      测试失败
+                    </>
+                  ) : (
+                    '测试连接'
+                  )}
+                </button>
+                <button
                   className="save-button"
                   onClick={handleSave}
                   type="button"
@@ -263,6 +321,13 @@ export default function Settings({ open, onClose, config, onConfigChange }: Sett
                   保存设置
                 </button>
               </div>
+              {testMessage && (
+                <div className={`test-result ${testStatus}`}>
+                  {testStatus === 'success' && <CheckmarkCircle16Regular />}
+                  {testStatus === 'error' && <DismissCircle16Regular />}
+                  <span>{testMessage}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="about-section">
