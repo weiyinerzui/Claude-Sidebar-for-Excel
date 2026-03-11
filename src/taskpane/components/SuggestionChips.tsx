@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Suggestion } from '../hooks/useSmartSuggestions';
 import '../styles/message-input.css';
 

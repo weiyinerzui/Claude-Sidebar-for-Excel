@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Badge } from '@fluentui/react-components';
 import { Table24Regular, Document24Regular, ChevronDown16Regular, ChevronUp16Regular } from '@fluentui/react-icons';
 import type { ExcelContext as ExcelContextType } from '../hooks/useExcelContext';

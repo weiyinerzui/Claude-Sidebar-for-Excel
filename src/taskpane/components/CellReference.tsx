@@ -1,4 +1,3 @@
-import React from 'react';
 import { Badge } from '@fluentui/react-components';
 import '../styles/cell-reference.css';
 

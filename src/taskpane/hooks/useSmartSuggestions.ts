@@ -25,9 +25,6 @@ export function useSmartSuggestions(context: ExcelContext): Suggestion[] {
     const hasDates = context.values.some((row) =>
       row.some((cell) => cell instanceof Date || isDateString(cell))
     );
-    const hasText = context.values.some((row) =>
-      row.some((cell) => typeof cell === 'string' && cell.trim() !== '')
-    );
     const hasFormulas =
       context.formulas &&
       context.formulas.some((row) => row.some((formula) => typeof formula === 'string' && formula.startsWith('=')));

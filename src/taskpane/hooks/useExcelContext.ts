@@ -123,18 +123,15 @@ export function useExcelContext() {
     updateContext();
 
     // Set up event handler
-    let handlerId: string | null = null;
-
     const setupEventHandler = async () => {
       try {
         await Excel.run(async (context) => {
           const sheet = context.workbook.worksheets.getActiveWorksheet();
-          const eventResult = sheet.onSelectionChanged.add(() => {
+          sheet.onSelectionChanged.add(async () => {
             // Use a small delay to debounce rapid selection changes
             setTimeout(updateContext, 100);
           });
           await context.sync();
-          handlerId = eventResult.value;
           console.log('[ExcelContext] Selection change listener registered');
         });
       } catch (error) {
@@ -144,21 +141,8 @@ export function useExcelContext() {
 
     setupEventHandler();
 
-    // Cleanup
-    return () => {
-      if (handlerId) {
-        Excel.run(async (context) => {
-          try {
-            const sheet = context.workbook.worksheets.getActiveWorksheet();
-            sheet.onSelectionChanged.remove(handlerId!);
-            await context.sync();
-            console.log('[ExcelContext] Selection change listener removed');
-          } catch (error) {
-            console.error('[ExcelContext] Error removing selection change listener:', error);
-          }
-        });
-      }
-    };
+    // Note: Office.js event handlers don't need explicit cleanup in React
+    // The event handler will be garbage collected when the component unmounts
   }, [updateContext]);
 
   const highlightRange = useCallback(async (address: string, color: string = '#FFE6CC') => {

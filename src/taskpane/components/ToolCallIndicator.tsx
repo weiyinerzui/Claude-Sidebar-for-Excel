@@ -1,10 +1,8 @@
-import React from 'react';
 import {
   Globe24Regular,
   DataPie24Regular,
   ArrowSwap24Regular,
   DocumentCopy24Regular,
-  Checkmark24Regular,
   TableSimpleMultiple24Regular,
 } from '@fluentui/react-icons';
 import '../styles/tool-indicator.css';

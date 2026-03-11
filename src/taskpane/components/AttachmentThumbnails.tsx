@@ -1,4 +1,4 @@
-import { Document24Regular, Image24Regular } from '@fluentui/react-icons';
+import { Document24Regular } from '@fluentui/react-icons';
 import type { ImageAttachment } from '../lib/types';
 import '../styles/attachment-thumbnails.css';
 

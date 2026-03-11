@@ -517,9 +517,9 @@ export function useExcelTools() {
             const range = sheet.getRange(input.range);
 
             if (input.remove) {
-              range.autoFilter.remove();
+              sheet.autoFilter.clearCriteria();
             } else {
-              range.autoFilter.apply(range);
+              sheet.autoFilter.apply(range);
             }
 
             await context.sync();
@@ -599,11 +599,9 @@ export function useExcelTools() {
             const sheet = context.workbook.worksheets.getActiveWorksheet();
             const cell = sheet.getRange(input.cell);
 
-            const comment = cell.comment;
-            comment.content = input.comment;
-            if (input.author) {
-              comment.authorName = input.author;
-            }
+            // Use comments.add() to create a new comment
+            // Note: authorName is read-only and set automatically by Excel
+            sheet.comments.add(cell, input.comment);
 
             await context.sync();
 
@@ -781,7 +779,7 @@ export function useExcelTools() {
                 right: 'EdgeRight',
               };
 
-              const borderName = borderNames[input.borderType];
+              const borderName = borderNames[input.borderType] as Excel.BorderIndex;
               range.format.borders.getItem(borderName).style = style;
               range.format.borders.getItem(borderName).weight = weight;
               range.format.borders.getItem(borderName).color = color;
@@ -990,13 +988,12 @@ export function useExcelTools() {
             const targetCell = sheet.getRange(input.targetCell);
 
             // Try to use SPARKLINE function (available in some Excel versions)
-            let formula = '';
             if (input.type === 'line') {
-              formula = `=SPARKLINE(${input.dataRange})`;
+              // Line sparkline
             } else if (input.type === 'column') {
-              formula = `=SPARKLINE(${input.dataRange},"column")`;
+              // Column sparkline
             } else if (input.type === 'winLoss') {
-              formula = `=SPARKLINE(${input.dataRange},"winloss")`;
+              // Win/loss sparkline
             }
 
             // Since SPARKLINE isn't universally available, we'll create a tiny embedded chart
