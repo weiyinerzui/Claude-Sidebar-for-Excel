@@ -158,32 +158,61 @@ export function useExcelTools() {
 
           case 'apply_formula': {
             const sheet = context.workbook.worksheets.getActiveWorksheet();
-            const range = sheet.getRange(input.range);
+            const targetRange = sheet.getRange(input.range);
 
             // Load range dimensions
-            range.load('rowCount, columnCount');
+            targetRange.load('rowCount, columnCount');
             await context.sync();
 
-            // Create 2D array filled with the formula for each cell
-            // Excel will auto-adjust relative references (e.g., A1 -> A2, A3, etc.)
-            const formulas: string[][] = [];
-            for (let row = 0; row < range.rowCount; row++) {
-              const rowFormulas: string[] = [];
-              for (let col = 0; col < range.columnCount; col++) {
-                rowFormulas.push(input.formula);
+            // For multi-cell ranges, use autoFill to properly adjust relative references
+            // This ensures formulas like =A1+B1 become =A2+B2, =A3+B3, etc.
+            if (targetRange.rowCount > 1 || targetRange.columnCount > 1) {
+              // Write formula to first cell only
+              const firstCell = targetRange.getCell(0, 0);
+              firstCell.formulas = [[input.formula]];
+              await context.sync();
+
+              // Use autoFill to copy with relative reference adjustment
+              // Determine fill direction based on range shape
+              if (targetRange.rowCount > 1 && targetRange.columnCount === 1) {
+                // Fill down (vertical)
+                const fillRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
+                firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
+              } else if (targetRange.columnCount > 1 && targetRange.rowCount === 1) {
+                // Fill right (horizontal)
+                const fillRange = targetRange.getOffsetRange(0, 1).getResizedRange(0, targetRange.columnCount - 2);
+                firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
+              } else {
+                // For 2D ranges, fill down first, then fill each row right
+                if (targetRange.rowCount > 1) {
+                  const fillDownRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
+                  firstCell.autoFill(fillDownRange, Excel.AutoFillType.fillDefault);
+                }
+                await context.sync();
+
+                // Now fill each row right if needed
+                if (targetRange.columnCount > 1) {
+                  for (let row = 0; row < targetRange.rowCount; row++) {
+                    const rowFirstCell = targetRange.getCell(row, 0);
+                    const fillRightRange = targetRange.getOffsetRange(row, 1).getResizedRange(0, targetRange.columnCount - 2);
+                    rowFirstCell.autoFill(fillRightRange, Excel.AutoFillType.fillDefault);
+                  }
+                }
               }
-              formulas.push(rowFormulas);
+              await context.sync();
+            } else {
+              // Single cell - just write the formula directly
+              targetRange.formulas = [[input.formula]];
+              await context.sync();
             }
-
-            range.formulas = formulas;
-            await context.sync();
 
             return {
               success: true,
               data: {
                 range: input.range,
                 formula: input.formula,
-                cellsAffected: range.rowCount * range.columnCount
+                cellsAffected: targetRange.rowCount * targetRange.columnCount,
+                method: 'autoFill'
               },
             };
           }
