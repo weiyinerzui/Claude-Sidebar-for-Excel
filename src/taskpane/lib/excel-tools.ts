@@ -35,7 +35,7 @@ export const excelTools: ExcelTool[] = [
   },
   {
     name: 'write_range',
-    description: 'Write values to a range of cells in Excel. Can write text, numbers, or formulas.',
+    description: 'Write VALUES to a range of cells in Excel. Use this for text and numbers ONLY. IMPORTANT: Do NOT use this for formulas - use apply_formula instead. Formulas written with this tool will appear as text, not as actual formulas.',
     input_schema: {
       type: 'object',
       properties: {
@@ -45,7 +45,7 @@ export const excelTools: ExcelTool[] = [
         },
         values: {
           type: 'array',
-          description: '2D array of values to write. Each row is an array of cell values.',
+          description: '2D array of values to write. Each row is an array of cell values. For text and numbers only - NOT for formulas.',
           items: {
             type: 'array',
           },
@@ -121,17 +121,17 @@ export const excelTools: ExcelTool[] = [
   },
   {
     name: 'apply_formula',
-    description: 'Apply a formula to a cell or range in Excel.',
+    description: 'Apply a FORMULA to a cell or range in Excel. Use this tool for writing or fixing formulas. The formula will be properly evaluated by Excel. Examples: fixing broken formulas, adding new formulas, correcting formula errors. Formula should include the = sign (e.g., "=SUM(A1:A10)", "=A1+B1").',
     input_schema: {
       type: 'object',
       properties: {
         range: {
           type: 'string',
-          description: 'Cell or range to apply the formula to',
+          description: 'Cell or range to apply the formula to (e.g., "A1" or "B2:B10")',
         },
         formula: {
           type: 'string',
-          description: 'Excel formula (e.g., "=SUM(A1:A10)")',
+          description: 'Excel formula including the = sign (e.g., "=SUM(A1:A10)", "=VLOOKUP(A1,Sheet2!A:B,2,FALSE)")',
         },
       },
       required: ['range', 'formula'],

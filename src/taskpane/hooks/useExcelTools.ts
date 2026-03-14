@@ -48,12 +48,40 @@ export function useExcelTools() {
               : context.workbook.worksheets.getActiveWorksheet();
 
             const range = sheet.getRange(input.range);
-            range.values = input.values;
+
+            // Check if any values are formulas (start with =)
+            // If so, use formulas property instead of values to ensure proper formula execution
+            const hasFormulas = input.values.some((row: any[]) =>
+              row.some((cell: any) =>
+                typeof cell === 'string' && cell.trim().startsWith('=')
+              )
+            );
+
+            if (hasFormulas) {
+              // Separate formulas from values
+              const processedFormulas: string[][] = input.values.map((row: any[]) =>
+                row.map((cell: any) => {
+                  if (typeof cell === 'string' && cell.trim().startsWith('=')) {
+                    return cell; // Keep as formula string
+                  }
+                  // For non-formula values, convert to string representation
+                  return cell === null || cell === undefined ? '' : String(cell);
+                })
+              );
+              range.formulas = processedFormulas;
+            } else {
+              range.values = input.values;
+            }
+
             await context.sync();
 
             return {
               success: true,
-              data: { range: input.range, rowsWritten: input.values.length },
+              data: {
+                range: input.range,
+                rowsWritten: input.values.length,
+                method: hasFormulas ? 'formulas' : 'values'
+              },
             };
           }
 
