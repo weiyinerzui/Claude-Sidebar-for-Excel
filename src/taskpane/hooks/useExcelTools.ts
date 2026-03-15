@@ -47,7 +47,10 @@ export function useExcelTools() {
               ? context.workbook.worksheets.getItem(input.worksheet)
               : context.workbook.worksheets.getActiveWorksheet();
 
-            const range = sheet.getRange(input.range);
+            // Expand range from starting cell to match values array dimensions
+            const rowCount = input.values.length;
+            const colCount = input.values[0]?.length ?? 1;
+            const range = sheet.getRange(input.range).getResizedRange(rowCount - 1, colCount - 1);
 
             // Check if any values are formulas (start with =)
             // If so, use formulas property instead of values to ensure proper formula execution
