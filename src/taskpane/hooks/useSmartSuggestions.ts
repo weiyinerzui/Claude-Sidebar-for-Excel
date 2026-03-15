@@ -135,10 +135,41 @@ export function useSmartSuggestions(context: ExcelContext): Suggestion[] {
           description: 'Understand the calculations',
         });
       }
+      
+      // Additional suggestions
+      if (isSingleColumn && context.rowCount > 5) {
+        suggestions.push({
+          id: 'data-validation',
+          label: 'Add Dropdown',
+          icon: '☑',
+          prompt: 'Add data validation dropdowns to this column',
+          description: 'Restrict cell input',
+        });
+      }
+      
+      if (isTable && context.rowCount > 5) {
+        suggestions.push({
+          id: 'remove-duplicates',
+          label: 'Remove Duplicates',
+          icon: '🚫',
+          prompt: 'Remove duplicate rows from this data',
+          description: 'Clean up data',
+        });
+      }
+      
+      if (hasNumbers && totalCells > 5) {
+        suggestions.push({
+          id: 'conditional-format',
+          label: 'Highlight',
+          icon: '🖌️',
+          prompt: 'Apply color scale conditional formatting to these numbers',
+          description: 'Visualize high/low values',
+        });
+      }
     }
 
-    // Limit to 4 suggestions to avoid clutter
-    return suggestions.slice(0, 4);
+    // Limit to 6 suggestions to avoid clutter (increased from 4)
+    return suggestions.slice(0, 6);
   }, [context]);
 }
 

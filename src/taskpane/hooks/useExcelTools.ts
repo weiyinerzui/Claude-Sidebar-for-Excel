@@ -164,48 +164,81 @@ export function useExcelTools() {
             const targetRange = sheet.getRange(input.range);
 
             // Load range dimensions
-            targetRange.load('rowCount, columnCount');
+            targetRange.load(['rowCount', 'columnCount']);
             await context.sync();
 
-            // For multi-cell ranges, use autoFill to properly adjust relative references
-            // This ensures formulas like =A1+B1 become =A2+B2, =A3+B3, etc.
-            if (targetRange.rowCount > 1 || targetRange.columnCount > 1) {
-              // Write formula to first cell only
-              const firstCell = targetRange.getCell(0, 0);
-              firstCell.formulas = [[input.formula]];
-              await context.sync();
-
-              // Use autoFill to copy with relative reference adjustment
-              // Determine fill direction based on range shape
-              if (targetRange.rowCount > 1 && targetRange.columnCount === 1) {
-                // Fill down (vertical)
-                const fillRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
-                firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
-              } else if (targetRange.columnCount > 1 && targetRange.rowCount === 1) {
-                // Fill right (horizontal)
-                const fillRange = targetRange.getOffsetRange(0, 1).getResizedRange(0, targetRange.columnCount - 2);
-                firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
+            // Handle R1C1 notation and Array formulas
+            if (input.isArrayFormula) {
+              if (input.useR1C1) {
+                targetRange.formulasR1C1 = [[input.formula]];
               } else {
-                // For 2D ranges, fill down first, then fill each row right
-                if (targetRange.rowCount > 1) {
-                  const fillDownRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
-                  firstCell.autoFill(fillDownRange, Excel.AutoFillType.fillDefault);
+                targetRange.formulas = [[input.formula]];
+              }
+              await context.sync();
+              return {
+                success: true,
+                data: {
+                  range: input.range,
+                  formula: input.formula,
+                  cellsAffected: targetRange.rowCount * targetRange.columnCount,
+                  method: 'arrayFormula'
+                },
+              };
+            }
+
+            // Fill type specifies how to distribute non-array formulas over multi-cell ranges
+            const fillType = input.fillType || 'autoFill';
+
+            if (targetRange.rowCount > 1 || targetRange.columnCount > 1) {
+              if (fillType === 'copy') {
+                // Just copy the exact same text to all cells without AutoFill adjustments
+                const formulasMatrix: string[][] = Array(targetRange.rowCount).fill(Array(targetRange.columnCount).fill(input.formula));
+                if (input.useR1C1) {
+                  targetRange.formulasR1C1 = formulasMatrix;
+                } else {
+                  targetRange.formulas = formulasMatrix;
+                }
+                await context.sync();
+              } else {
+                // 'autoFill' mode: default behavior, writing to first cell and dragging
+                const firstCell = targetRange.getCell(0, 0);
+                if (input.useR1C1) {
+                  firstCell.formulasR1C1 = [[input.formula]];
+                } else {
+                  firstCell.formulas = [[input.formula]];
                 }
                 await context.sync();
 
-                // Now fill each row right if needed
-                if (targetRange.columnCount > 1) {
-                  for (let row = 0; row < targetRange.rowCount; row++) {
-                    const rowFirstCell = targetRange.getCell(row, 0);
-                    const fillRightRange = targetRange.getOffsetRange(row, 1).getResizedRange(0, targetRange.columnCount - 2);
-                    rowFirstCell.autoFill(fillRightRange, Excel.AutoFillType.fillDefault);
+                // Fill down and/or right
+                if (targetRange.rowCount > 1 && targetRange.columnCount === 1) {
+                  const fillRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
+                  firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
+                } else if (targetRange.columnCount > 1 && targetRange.rowCount === 1) {
+                  const fillRange = targetRange.getOffsetRange(0, 1).getResizedRange(0, targetRange.columnCount - 2);
+                  firstCell.autoFill(fillRange, Excel.AutoFillType.fillDefault);
+                } else {
+                  if (targetRange.rowCount > 1) {
+                    const fillDownRange = targetRange.getOffsetRange(1, 0).getResizedRange(targetRange.rowCount - 2, 0);
+                    firstCell.autoFill(fillDownRange, Excel.AutoFillType.fillDefault);
+                  }
+                  await context.sync();
+                  if (targetRange.columnCount > 1) {
+                    for (let row = 0; row < targetRange.rowCount; row++) {
+                      const rowFirstCell = targetRange.getCell(row, 0);
+                      const fillRightRange = targetRange.getOffsetRange(row, 1).getResizedRange(0, targetRange.columnCount - 2);
+                      rowFirstCell.autoFill(fillRightRange, Excel.AutoFillType.fillDefault);
+                    }
                   }
                 }
+                await context.sync();
               }
-              await context.sync();
             } else {
               // Single cell - just write the formula directly
-              targetRange.formulas = [[input.formula]];
+              if (input.useR1C1) {
+                targetRange.formulasR1C1 = [[input.formula]];
+              } else {
+                targetRange.formulas = [[input.formula]];
+              }
               await context.sync();
             }
 
@@ -387,6 +420,26 @@ export function useExcelTools() {
                 const summarizeBy = dataField.function || 'Sum';
                 pivotField.summarizeBy = Excel.AggregationFunction[summarizeBy as keyof typeof Excel.AggregationFunction];
                 console.log(`[PivotTable] Added data field: ${hierarchyName} (${summarizeBy})`);
+
+                // Set calculate as / show as for percentages
+                if (dataField.showAs) {
+                  const showAsMap: Record<string, Excel.ShowAsCalculation> = {
+                    percentOfGrandTotal:     Excel.ShowAsCalculation.percentOfGrandTotal,
+                    percentOfRowTotal:       Excel.ShowAsCalculation.percentOfRowTotal,
+                    percentOfColumnTotal:    Excel.ShowAsCalculation.percentOfColumnTotal,
+                    percentOfParentRowTotal: Excel.ShowAsCalculation.percentOfParentRowTotal,
+                    percentOfParentColTotal: Excel.ShowAsCalculation.percentOfParentColumnTotal,
+                    runningTotal:            Excel.ShowAsCalculation.runningTotal,
+                    rankAscending:           Excel.ShowAsCalculation.rankAscending,
+                    rankDescending:          Excel.ShowAsCalculation.rankDecending as any, // Typo in some definitions or correct in newer ones
+                    index:                   Excel.ShowAsCalculation.index,
+                  };
+                  const showAsCalc = showAsMap[dataField.showAs];
+                  if (showAsCalc) {
+                    pivotField.showAs = { calculation: showAsCalc };
+                    console.log(`[PivotTable] Added showAs calculation to data field: ${showAsCalc}`);
+                  }
+                }
               } else {
                 console.warn(`[PivotTable] Data field "${dataField.field}" not found. Available: ${availableHierarchies.join(', ')}`);
               }
@@ -407,6 +460,48 @@ export function useExcelTools() {
                 dataFields: input.dataFields,
                 availableHierarchies,
                 headers,
+              },
+            };
+          }
+
+          case 'add_pivot_calculated_field': {
+            const sheet = context.workbook.worksheets.getItem(input.pivotTableSheet);
+            const pivotTables = sheet.pivotTables;
+            pivotTables.load('items/name');
+            await context.sync();
+
+            if (pivotTables.items.length === 0) {
+              return { success: false, error: '该工作表上没有数据透视表' };
+            }
+
+            // 获取第一个透视表（通常也是唯一的一个）
+            const pivotTable = pivotTables.items[0];
+            
+            // 确保没有多余的 = 号
+            let formula = input.formula.trim();
+            if (!formula.startsWith('=')) {
+              formula = `=${formula}`;
+            }
+
+            // Using any to bypass TS compilation if @types/office-js is outdated
+            (pivotTable as any).calculatedFields.add(input.fieldName, formula);
+
+            // 如果需要加到数据值区域
+            if (input.addToValues !== false) {
+              pivotTable.hierarchies.load('items/name');
+              await context.sync();
+              pivotTable.dataHierarchies.add(pivotTable.hierarchies.getItem(input.fieldName));
+            }
+
+            await context.sync();
+
+            return {
+              success: true,
+              data: {
+                pivotTableName: pivotTable.name,
+                fieldName: input.fieldName,
+                formula: input.formula,
+                addedToValues: input.addToValues !== false
               },
             };
           }
@@ -1396,6 +1491,254 @@ export function useExcelTools() {
                 rowCount: rows.length - (includeHeaders ? 0 : 1),
                 message: `Exported ${rows.length} rows to CSV format. Copy the CSV data from the response.`,
               },
+            };
+          }
+
+          case 'set_column_width_row_height': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const range = sheet.getRange(input.range);
+            if (input.columnWidth) {
+              range.format.columnWidth = input.columnWidth;
+            }
+            if (input.rowHeight) {
+              range.format.rowHeight = input.rowHeight;
+            }
+            await context.sync();
+            return {
+              success: true,
+              data: { range: input.range, columnWidth: input.columnWidth, rowHeight: input.rowHeight },
+            };
+          }
+
+          case 'conditional_aggregate': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const criteriaRange = sheet.getRange(input.range);
+            const sumRange = input.sumRange ? sheet.getRange(input.sumRange) : criteriaRange;
+            
+            criteriaRange.load('values');
+            sumRange.load('values');
+            await context.sync();
+            
+            let count = 0;
+            let sum = 0;
+            const operator = input.operator;
+            const targetVal = isNaN(Number(input.value)) ? input.value : Number(input.value);
+            
+            for (let r = 0; r < criteriaRange.values.length; r++) {
+              for (let c = 0; c < criteriaRange.values[r].length; c++) {
+                const cellVal = criteriaRange.values[r][c];
+                let isMatch = false;
+                
+                if (operator === '==' && cellVal == targetVal) isMatch = true;
+                else if (operator === '!=' && cellVal != targetVal) isMatch = true;
+                else if (typeof cellVal === 'number' && typeof targetVal === 'number') {
+                  if (operator === '>' && cellVal > targetVal) isMatch = true;
+                  else if (operator === '>=' && cellVal >= targetVal) isMatch = true;
+                  else if (operator === '<' && cellVal < targetVal) isMatch = true;
+                  else if (operator === '<=' && cellVal <= targetVal) isMatch = true;
+                }
+                
+                if (isMatch) {
+                  count++;
+                  const valToAccumulate = sumRange.values[r]?.[c];
+                  if (typeof valToAccumulate === 'number') {
+                    sum += valToAccumulate;
+                  }
+                }
+              }
+            }
+            
+            let result = 0;
+            if (input.aggregateFunction === 'sum') result = sum;
+            else if (input.aggregateFunction === 'count') result = count;
+            else if (input.aggregateFunction === 'average') result = count > 0 ? sum / count : 0;
+            
+            return {
+              success: true,
+              data: { function: input.aggregateFunction, result: result, matches: count },
+            };
+          }
+
+          case 'lookup_value': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const range = sheet.getRange(input.range);
+            range.load('values');
+            await context.sync();
+            
+            let foundValue = null;
+            let found = false;
+            const lookupStr = String(input.lookupValue).toLowerCase();
+            
+            for (let r = 0; r < range.values.length; r++) {
+              const firstColVal = String(range.values[r][0] || '').toLowerCase();
+              if (firstColVal === lookupStr) {
+                foundValue = range.values[r][input.returnColumnIndex];
+                found = true;
+                break;
+              }
+            }
+            
+            return {
+              success: true,
+              data: { found, value: foundValue, lookupValue: input.lookupValue },
+            };
+          }
+
+          case 'fill_series': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const sourceRange = sheet.getRange(input.sourceRange);
+            const fillRange = sheet.getRange(input.fillRange);
+            
+            // Map string fillType to Excel AutoFillType
+            const fillTypeMap: Record<string, Excel.AutoFillType> = {
+              fillDefault: Excel.AutoFillType.fillDefault,
+              fillCopy: Excel.AutoFillType.fillCopy,
+              fillSeries: Excel.AutoFillType.fillSeries,
+              fillFormats: Excel.AutoFillType.fillFormats,
+              fillValues: Excel.AutoFillType.fillValues,
+              fillDays: Excel.AutoFillType.fillDays,
+              fillWeekdays: Excel.AutoFillType.fillWeekdays,
+              fillMonths: Excel.AutoFillType.fillMonths,
+              fillYears: Excel.AutoFillType.fillYears,
+              linearTrend: Excel.AutoFillType.linearTrend,
+              growthTrend: Excel.AutoFillType.growthTrend,
+            };
+            const autoFillType = fillTypeMap[input.fillType || 'fillDefault'] || Excel.AutoFillType.fillDefault;
+            
+            sourceRange.autoFill(fillRange, autoFillType);
+            await context.sync();
+            
+            return {
+              success: true,
+              data: { sourceRange: input.sourceRange, fillRange: input.fillRange, fillType: input.fillType },
+            };
+          }
+
+          case 'group_rows_columns': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const range = sheet.getRange(input.range);
+            if (input.groupType === 'rows') {
+              range.group(Excel.GroupOption.byRows);
+            } else {
+              range.group(Excel.GroupOption.byColumns);
+            }
+            await context.sync();
+            return {
+              success: true,
+              data: { range: input.range, groupType: input.groupType },
+            };
+          }
+
+          case 'protect_worksheet': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            if (input.action === 'protect') {
+              sheet.protection.protect({ allowSort: true, allowAutoFilter: true, allowFormatCells: true });
+            } else {
+              sheet.protection.unprotect(input.password);
+            }
+            await context.sync();
+            return {
+              success: true,
+              data: { action: input.action },
+            };
+          }
+
+          case 'get_tables': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const tables = sheet.tables;
+            tables.load('items/name, items/showHeaders');
+            await context.sync();
+            
+            const tableList = [];
+            for (const table of tables.items) {
+              const range = table.getRange();
+              range.load('address');
+              await context.sync();
+              tableList.push({ name: table.name, address: range.address, showHeaders: table.showHeaders });
+            }
+            
+            return {
+              success: true,
+              data: { tables: tableList },
+            };
+          }
+
+          case 'get_pivot_tables': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const pivotTables = sheet.pivotTables;
+            pivotTables.load('items/name');
+            await context.sync();
+            
+            const ptList = [];
+            for (const pt of pivotTables.items) {
+               const layout = pt.layout;
+               layout.load('layoutType');
+               const dataHierarchies = pt.dataHierarchies;
+               dataHierarchies.load('items/name');
+               const rowHierarchies = pt.rowHierarchies;
+               rowHierarchies.load('items/name');
+               await context.sync();
+               
+               ptList.push({
+                 name: pt.name,
+                 dataFields: dataHierarchies.items.map((i: any) => i.name),
+                 rowFields: rowHierarchies.items.map((i: any) => i.name),
+               });
+            }
+            
+            return {
+               success: true,
+               data: { pivotTables: ptList },
+            };
+          }
+
+          case 'set_pivot_filter': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const pivotTable = sheet.pivotTables.getItem(input.pivotTableName);
+            const field = pivotTable.hierarchies.getItem(input.fieldName).fields.getItem(input.fieldName);
+            
+            // Note: filter operations are complex and depend on Office.js versions. 
+            // We'll apply a basic label or value filter.
+            if (input.filterType === 'label') {
+              (field as any).applyFilter({
+                labelFilter: {
+                  condition: input.condition as any,
+                  substring: input.value,
+                  lowerBound: input.value,
+                  upperBound: input.value2
+                }
+              });
+            } else {
+              (field as any).applyFilter({
+                valueFilter: {
+                  condition: input.condition as any,
+                  value: input.value,
+                  lowerBound: input.value,
+                  upperBound: input.value2,
+                  comparator: undefined
+                }
+              });
+            }
+            await context.sync();
+            return {
+              success: true,
+              data: { pivotTable: input.pivotTableName, field: input.fieldName, filtered: true },
+            };
+          }
+
+          case 'sort_pivot_field': {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            const pivotTable = sheet.pivotTables.getItem(input.pivotTableName);
+            const field = pivotTable.hierarchies.getItem(input.fieldName).fields.getItem(input.fieldName);
+            
+            (field as any).sortBy({
+               sortType: input.sortType,
+               sortBy: input.sortByDataField ? 'Data' : 'Label'
+            });
+            await context.sync();
+            return {
+              success: true,
+              data: { pivotTable: input.pivotTableName, field: input.fieldName, sortType: input.sortType },
             };
           }
 

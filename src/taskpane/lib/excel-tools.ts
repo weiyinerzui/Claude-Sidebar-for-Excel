@@ -133,6 +133,19 @@ export const excelTools: ExcelTool[] = [
           type: 'string',
           description: 'Excel formula including the = sign (e.g., "=SUM(A1:A10)", "=VLOOKUP(A1,Sheet2!A:B,2,FALSE)")',
         },
+        isArrayFormula: {
+          type: 'boolean',
+          description: 'If true, writes the formula to the entire range as a dynamic array / CSE formula instead of dragging/autofilling it (default: false)',
+        },
+        useR1C1: {
+          type: 'boolean',
+          description: 'If true, assumes the formula uses R1C1 notation (e.g., "=RC[-1]+1") instead of A1 notation (default: false)',
+        },
+        fillType: {
+          type: 'string',
+          description: 'How to distribute a non-array formula across multiple cells: "autoFill" (adjusts relative references like =A1 to =A2), or "copy" (copies exact text across all cells). (default: "autoFill")',
+          enum: ['autoFill', 'copy'],
+        },
       },
       required: ['range', 'formula'],
     },
@@ -282,11 +295,52 @@ export const excelTools: ExcelTool[] = [
                 description: 'Aggregation function',
                 enum: ['Sum', 'Count', 'Average', 'Min', 'Max'],
               },
+              showAs: {
+                type: 'string',
+                description: '如何将值显示为计算（可选）。用于百分比显示模式，比如占总计百分比',
+                enum: [
+                  'percentOfGrandTotal',
+                  'percentOfRowTotal',
+                  'percentOfColumnTotal',
+                  'percentOfParentRowTotal',
+                  'percentOfParentColTotal',
+                  'runningTotal',
+                  'rankAscending',
+                  'rankDescending',
+                  'index',
+                ],
+              },
             },
           },
         },
       },
       required: ['sourceRange', 'rowFields', 'dataFields'],
+    },
+  },
+  {
+    name: 'add_pivot_calculated_field',
+    description: '在已创建的数据透视表中添加一个计算字段（基于现有字段的公式，例如"利润率 = 利润/销售额"）。注意：必须先使用 create_pivot_table 创建透视表后才能使用。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pivotTableSheet: {
+          type: 'string',
+          description: '透视表所在的工作表名称',
+        },
+        fieldName: {
+          type: 'string',
+          description: '新计算字段的名称（例如"利润率"）',
+        },
+        formula: {
+          type: 'string',
+          description: '基于现有字段名的公式字符串（例如 "利润/销售额" 或 "=(收入-成本)/收入"，不严格要求等号开头）。',
+        },
+        addToValues: {
+          type: 'boolean',
+          description: '是否自动将此计算字段放到透视表的值区域（默认：true）',
+        },
+      },
+      required: ['pivotTableSheet', 'fieldName', 'formula'],
     },
   },
   {
@@ -930,6 +984,124 @@ export const excelTools: ExcelTool[] = [
         },
       },
       required: ['range'],
+    },
+  },
+  {
+    name: 'set_column_width_row_height',
+    description: 'Set custom width for columns or custom height for rows in a range.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        range: { type: 'string', description: 'Range to apply dimensions to (e.g., "A:B", "1:10")' },
+        columnWidth: { type: 'number', description: 'Width of columns in points (optional)' },
+        rowHeight: { type: 'number', description: 'Height of rows in points (optional)' },
+      },
+      required: ['range'],
+    },
+  },
+  {
+    name: 'conditional_aggregate',
+    description: 'Perform conditional aggregations (SUMIF, COUNTIF, AVERAGEIF) via programming without leaving a formula in the cell.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        range: { type: 'string', description: 'Range to evaluate criteria against (e.g., "A1:A10")' },
+        operator: { type: 'string', enum: ['>', '>=', '<', '<=', '==', '!='], description: 'Comparison operator' },
+        value: { type: 'string', description: 'Value to compare against' },
+        aggregateFunction: { type: 'string', enum: ['sum', 'count', 'average'], description: 'Function to apply' },
+        sumRange: { type: 'string', description: 'Optional: Range to sum/average if condition is true. Default: same as range' },
+      },
+      required: ['range', 'operator', 'value', 'aggregateFunction'],
+    },
+  },
+  {
+    name: 'lookup_value',
+    description: 'Find a value in a range and return the corresponding value in another column, essentially performing a VLOOKUP programmatically. Note: this returns the data to you instead of writing it to Excel.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        range: { type: 'string', description: 'The range containing the keys and values (e.g., "A1:D100")' },
+        lookupValue: { type: 'string', description: 'The value to find in the first column' },
+        returnColumnIndex: { type: 'number', description: 'The 0-based index relative to the range to return the value from.' },
+      },
+      required: ['range', 'lookupValue', 'returnColumnIndex'],
+    },
+  },
+  {
+    name: 'fill_series',
+    description: 'Fill a sequence (numbers, dates, text) linearly based on the first few cells.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sourceRange: { type: 'string', description: 'Range containing the initial pattern (e.g., "A1" or "A1:A2")' },
+        fillRange: { type: 'string', description: 'Range to be filled, starting from the sourceRange (e.g., "A1:A10")' },
+        fillType: { type: 'string', enum: ['fillDefault', 'fillCopy', 'fillSeries', 'fillFormats', 'fillValues', 'fillDays', 'fillWeekdays', 'fillMonths', 'fillYears', 'linearTrend', 'growthTrend'], description: 'The type of auto-fill default: fillDefault' },
+      },
+      required: ['sourceRange', 'fillRange'],
+    },
+  },
+  {
+    name: 'group_rows_columns',
+    description: 'Group rows or columns to create an outline / collapsible section.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        range: { type: 'string', description: 'Range of rows or columns to group (e.g., "2:5" or "B:D")' },
+        groupType: { type: 'string', enum: ['rows', 'columns'], description: 'Whether to group rows or columns' },
+      },
+      required: ['range', 'groupType'],
+    },
+  },
+  {
+    name: 'protect_worksheet',
+    description: 'Protect or unprotect the current active worksheet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['protect', 'unprotect'], description: 'Action to perform' },
+        password: { type: 'string', description: 'Optional password' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'get_tables',
+    description: 'Get a list of all tables in the active worksheet.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_pivot_tables',
+    description: 'Get a list of all pivot tables in the active worksheet.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'set_pivot_filter',
+    description: 'Set a value or label filter on a specific Pivot Table field (row or column).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pivotTableName: { type: 'string', description: 'Name of the pivot table (get from get_pivot_tables)' },
+        fieldName: { type: 'string', description: 'Field to apply the filter to' },
+        filterType: { type: 'string', enum: ['label', 'value'], description: 'Type of filter' },
+        condition: { type: 'string', description: 'Condition, e.g. "GreaterThan", "Equals", "BeginsWith" (Refer to Office.js Filter Operators)' },
+        value: { type: 'string', description: 'Value to compare against' },
+        value2: { type: 'string', description: 'Second value for "Between" conditions' },
+      },
+      required: ['pivotTableName', 'fieldName', 'filterType', 'condition', 'value'],
+    },
+  },
+  {
+    name: 'sort_pivot_field',
+    description: 'Sort a Pivot Table field ascending or descending based on its items or based on a data point.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pivotTableName: { type: 'string', description: 'Name of the pivot table' },
+        fieldName: { type: 'string', description: 'Field to sort' },
+        sortType: { type: 'string', enum: ['Ascending', 'Descending'], description: 'Sort order' },
+        sortByDataField: { type: 'string', description: 'If provided, sorts by this data field (e.g. "Sum of Sales"). Otherwise sort by item label natively.' },
+      },
+      required: ['pivotTableName', 'fieldName', 'sortType'],
     },
   },
 ];

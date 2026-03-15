@@ -46,7 +46,7 @@ export function useExcelContext() {
         console.log(`[ExcelContext] Selection: ${range.address}, Total cells: ${totalCells.toLocaleString()}`);
 
         // Very aggressive limits to prevent crashes
-        const MAX_CELLS_FOR_FULL_LOAD = 100;
+        const MAX_CELLS_FOR_FULL_LOAD = 500;
         const MAX_CELLS_FOR_PREVIEW = 50000; // Don't even try to load data beyond this
 
         let values: any[][] | null = null;
@@ -70,8 +70,8 @@ export function useExcelContext() {
             range.values.some((row) => row.some((cell) => cell !== null && cell !== ''));
         } else {
           // For medium selections, only load a small preview
-          const previewRows = Math.min(3, range.rowCount);
-          const previewCols = Math.min(5, range.columnCount);
+          const previewRows = Math.min(10, range.rowCount);
+          const previewCols = Math.min(10, range.columnCount);
           console.log(`[ExcelContext] Loading preview (${previewRows}x${previewCols})`);
 
           try {

@@ -227,7 +227,7 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             const userMessage: ChatMessage = {
                 id: crypto.randomUUID(),
                 role: 'user',
-                content: msgContent as string,
+                content: msgContent as ChatMessage['content'],
                 attachments,
             };
 
@@ -237,11 +237,25 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             const controller = new AbortController();
             setAbortController(controller);
 
-            // 构建对话历史（OpenAI 格式）
-            const history: OpenAIMessage[] = [...messages, userMessage].map((m) => ({
-                role: m.role as 'user' | 'assistant',
-                content: typeof m.content === 'string' ? m.content : null,
-            }));
+            // 构建对话历史（OpenAI 格式），保留多模态内容
+            const history: OpenAIMessage[] = [...messages, userMessage].map((m) => {
+                if (typeof m.content === 'string') {
+                    return { role: m.role as 'user' | 'assistant', content: m.content };
+                }
+                // 多模态消息：将附件重建为 OpenAI content parts 格式
+                const parts: (OpenAITextPart | OpenAIImagePart)[] = [];
+                m.content.forEach((block: any) => {
+                    if (block.type === 'text') {
+                        parts.push({ type: 'text', text: block.text });
+                    } else if (block.type === 'image' && block.source) {
+                        const url = block.source.type === 'base64'
+                            ? `data:${block.source.media_type};base64,${block.source.data}`
+                            : block.source.url;
+                        parts.push({ type: 'image_url', image_url: { url } });
+                    }
+                });
+                return { role: m.role as 'user' | 'assistant', content: parts.length > 0 ? parts as any : null };
+            });
 
             const streamingMessageId = crypto.randomUUID();
             let messageCreated = false;
