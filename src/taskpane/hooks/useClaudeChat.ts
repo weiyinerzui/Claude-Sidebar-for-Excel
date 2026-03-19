@@ -126,10 +126,6 @@ export function useClaudeChat(config: ApiProviderConfig) {
               role: m.role,
               content: m.content,
             })) as Anthropic.MessageParam[],
-            thinking: {
-              type: 'enabled',
-              budget_tokens: 2000,
-            },
           },
           { signal: controller.signal }
         );

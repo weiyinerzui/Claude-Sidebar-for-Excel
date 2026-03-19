@@ -34,10 +34,10 @@ export interface ExcelContext {
 // ─── 常量配置 ──────────────────────────────────────────────────────────────────
 
 const MAX_RANGES = 10;                    // 最大区域数量
-const MAX_CELLS_FOR_FULL_LOAD = 100;      // 完整加载上限
+const MAX_CELLS_FOR_FULL_LOAD = 500;      // 完整加载上限（从100提升到500）
 const MAX_CELLS_FOR_PREVIEW = 50000;      // 预览上限
-const PREVIEW_ROWS = 3;                   // 预览行数
-const PREVIEW_COLS = 5;                   // 预览列数
+const PREVIEW_ROWS = 10;                  // 预览行数（从3提升到10）
+const PREVIEW_COLS = 10;                  // 预览列数（从5提升到10）
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────────
 
