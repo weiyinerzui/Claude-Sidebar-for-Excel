@@ -197,7 +197,17 @@ export function useOpenAIChat(config: ApiProviderConfig) {
             // Build text content
             let textContent = content.trim();
             if (excelContext?.hasData) {
-                textContent += `\n\n[Excel Context: Currently viewing ${excelContext.address} on sheet "${excelContext.sheetName}" (${excelContext.rowCount}×${excelContext.columnCount} cells)]`;
+                if (excelContext.isMultiSelect && excelContext.ranges.length > 1) {
+                    // 多区域格式
+                    const rangeDescriptions = excelContext.ranges.map((r) => {
+                        const sheetPart = r.sheetName ? `${r.sheetName}!` : '';
+                        return `区域${r.index}=${sheetPart}${r.address.split('!').pop()} (${r.rowCount}×${r.columnCount})`;
+                    }).join(', ');
+                    textContent += `\n\n[Excel Context: 已选中 ${excelContext.ranges.length} 个区域 - ${rangeDescriptions}，共 ${excelContext.totalCells.toLocaleString()} 个单元格]`;
+                } else {
+                    // 单区域格式
+                    textContent += `\n\n[Excel Context: Currently viewing ${excelContext.address} on sheet "${excelContext.sheetName}" (${excelContext.rowCount}×${excelContext.columnCount} cells)]`;
+                }
             }
 
             // OpenAI 格式的 content

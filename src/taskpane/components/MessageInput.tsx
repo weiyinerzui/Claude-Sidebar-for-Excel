@@ -228,9 +228,19 @@ export default function MessageInput({ value, onChange, onSend, onStop, disabled
   // Calculate context percentage (max 10,000 cells = 100%)
   const getContextPercentage = (): number => {
     if (!excelContext || !excelContext.hasData) return 0;
-    const totalCells = excelContext.rowCount * excelContext.columnCount;
+    // 使用新的 totalCells 字段（支持多区域）
+    const totalCells = excelContext.totalCells ?? (excelContext.rowCount * excelContext.columnCount);
     const maxCells = 10000;
     return Math.min(Math.round((totalCells / maxCells) * 100), 100);
+  };
+
+  // 获取上下文描述文本
+  const getContextDescription = (): string => {
+    if (!excelContext || !excelContext.hasData) return 'No Excel context selected';
+    if (excelContext.isMultiSelect && excelContext.ranges.length > 1) {
+      return `${excelContext.ranges.length} ranges • ${excelContext.totalCells.toLocaleString()} cells • ${contextPercentage}%`;
+    }
+    return `Excel context: ${contextPercentage}% of max`;
   };
 
   const contextPercentage = getContextPercentage();
@@ -384,9 +394,9 @@ export default function MessageInput({ value, onChange, onSend, onStop, disabled
             <button
               className={`context-button ${contextPercentage > 0 ? 'has-context' : ''}`}
               onClick={onClearContext}
-              aria-label={contextPercentage > 0 ? `Excel context: ${contextPercentage}% - Click to clear` : `No Excel context selected`}
+              aria-label={contextPercentage > 0 ? `${getContextDescription()} - Click to clear` : `No Excel context selected`}
               type="button"
-              title={contextPercentage > 0 ? `Excel context: ${contextPercentage}% of max\nClick to clear context and disable cell prioritization` : `Select Excel cells to add context`}
+              title={contextPercentage > 0 ? `${getContextDescription()}\nClick to clear context` : `Select Excel cells to add context`}
             >
               <svg className="context-progress-ring" width="28" height="28" viewBox="0 0 28 28">
                 {/* Background circle */}

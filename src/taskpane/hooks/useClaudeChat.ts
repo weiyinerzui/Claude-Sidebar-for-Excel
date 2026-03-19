@@ -24,8 +24,19 @@ export function useClaudeChat(config: ApiProviderConfig) {
 
       // Enhance with Excel context if available
       if (excelContext && excelContext.hasData) {
-        const contextInfo = `\n\n[Excel Context: Currently viewing ${excelContext.address} on sheet "${excelContext.sheetName}" (${excelContext.rowCount}×${excelContext.columnCount} cells)]`;
-        enhancedTextContent += contextInfo;
+        if (excelContext.isMultiSelect && excelContext.ranges.length > 1) {
+          // 多区域格式
+          const rangeDescriptions = excelContext.ranges.map((r) => {
+            const sheetPart = r.sheetName ? `${r.sheetName}!` : '';
+            return `区域${r.index}=${sheetPart}${r.address.split('!').pop()} (${r.rowCount}×${r.columnCount})`;
+          }).join(', ');
+          const contextInfo = `\n\n[Excel Context: 已选中 ${excelContext.ranges.length} 个区域 - ${rangeDescriptions}，共 ${excelContext.totalCells.toLocaleString()} 个单元格]`;
+          enhancedTextContent += contextInfo;
+        } else {
+          // 单区域格式（保持向后兼容）
+          const contextInfo = `\n\n[Excel Context: Currently viewing ${excelContext.address} on sheet "${excelContext.sheetName}" (${excelContext.rowCount}×${excelContext.columnCount} cells)]`;
+          enhancedTextContent += contextInfo;
+        }
       }
 
       // If we have attachments, build content blocks array

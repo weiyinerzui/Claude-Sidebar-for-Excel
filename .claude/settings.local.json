@@ -11,7 +11,8 @@
       "Bash(cd \"E:/workspace/github/Claude-Sidebar-for-Excel\" && npx office-addin-manifest validate manifest.prod.xml 2>&1 || true)",
       "Bash(cd \"E:/workspace/github/Claude-Sidebar-for-Excel\" && npm install --save-dev sharp)",
       "Bash(cd \"E:/workspace/github/Claude-Sidebar-for-Excel\" && npx office-addin-manifest validate manifest.prod.xml 2>&1)",
-      "Bash(cd \"E:/workspace/github/Claude-Sidebar-for-Excel\" && rm -f public/assets/*.svg && ls -la public/assets/)"
+      "Bash(cd \"E:/workspace/github/Claude-Sidebar-for-Excel\" && rm -f public/assets/*.svg && ls -la public/assets/)",
+      "Bash(npm run:*)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge } from '@fluentui/react-components';
-import { Table24Regular, Document24Regular, ChevronDown16Regular, ChevronUp16Regular } from '@fluentui/react-icons';
-import type { ExcelContext as ExcelContextType } from '../hooks/useExcelContext';
+import { Table24Regular, Document24Regular, ChevronDown16Regular, ChevronUp16Regular, Layer24Regular } from '@fluentui/react-icons';
+import type { ExcelContext as ExcelContextType, SelectedRange } from '../hooks/useExcelContext';
 import '../styles/excel-context.css';
 
 interface ExcelContextProps {
@@ -32,42 +32,93 @@ export default function ExcelContext({ context, isLoading }: ExcelContextProps) 
     return String(value);
   };
 
-  const getPreviewData = (): string => {
-    const totalCells = context.rowCount * context.columnCount;
-
-    // For extremely large selections where we didn't load any data
-    if (!context.values || context.values.length === 0) {
+  const getPreviewData = (range: SelectedRange, totalCells: number): string => {
+    if (!range.values || range.values.length === 0) {
       if (totalCells > 50000) {
-        return `Very large selection (${totalCells.toLocaleString()} cells) - data not loaded to preserve performance`;
+        return `Very large (${totalCells.toLocaleString()} cells)`;
       }
       return 'No data';
     }
 
     const isLargeSelection = totalCells > 100;
-
-    // Show first few cells as preview
     const maxPreview = 3;
-    const firstRow = context.values[0];
+    const firstRow = range.values[0];
     if (!firstRow) return 'No data';
 
     const preview = firstRow.slice(0, maxPreview).map(formatCellValue).join(', ');
-    const hasMore = firstRow.length > maxPreview || context.values.length > 1;
+    const hasMore = firstRow.length > maxPreview || range.values.length > 1;
 
     if (isLargeSelection) {
-      return `${preview}... (preview of ${totalCells.toLocaleString()} cells)`;
+      return `${preview}... (${totalCells.toLocaleString()} cells)`;
     }
 
     return preview + (hasMore ? '...' : '');
   };
 
-  const getCellInfo = (): string => {
-    if (context.rowCount === 1 && context.columnCount === 1) {
+  const getCellInfo = (range?: SelectedRange): string => {
+    const rc = range?.rowCount ?? context.rowCount;
+    const cc = range?.columnCount ?? context.columnCount;
+    if (rc === 1 && cc === 1) {
       return '1 cell';
     }
-    return `${context.rowCount} × ${context.columnCount} cells`;
+    return `${rc} × ${cc} cells`;
   };
 
-  // Collapsed view - minimal chip
+  // 格式化多区域地址摘要
+  const getRangesSummary = (): string => {
+    if (!context.isMultiSelect) {
+      return context.address;
+    }
+
+    const addresses = context.ranges.map(r => {
+      // 简化地址显示：同sheet只显示一次sheet名
+      const match = r.address.match(/^(.+)!(.+)$/);
+      if (match) {
+        return match[2]; // 只返回单元格地址部分
+      }
+      return r.address;
+    });
+
+    if (addresses.length <= 3) {
+      return `${addresses.join(', ')} (${context.ranges.length} ranges)`;
+    }
+
+    return `${addresses.slice(0, 2).join(', ')}... +${addresses.length - 2} more`;
+  };
+
+  // 渲染单个区域
+  const renderRangeItem = (range: SelectedRange) => {
+    const hasFormulas = range.formulas?.some(row => row.some(f => typeof f === 'string' && f.startsWith('=')));
+
+    return (
+      <div key={range.id} className="excel-context-range-item">
+        <div className="excel-context-range-header">
+          <span className="excel-context-range-index">区域{range.index}</span>
+          <span className="excel-context-range-address">{range.address}</span>
+          <Badge appearance="tint" size="small">
+            {getCellInfo(range)}
+          </Badge>
+          {range.isPreview && (
+            <Badge appearance="outline" size="small" className="excel-context-badge-preview">
+              Preview
+            </Badge>
+          )}
+        </div>
+        {range.values && range.values.length > 0 && (
+          <div className="excel-context-range-preview">
+            {getPreviewData(range, range.cellCount)}
+          </div>
+        )}
+        {hasFormulas && (
+          <Badge appearance="outline" size="small" className="excel-context-badge">
+            Formulas
+          </Badge>
+        )}
+      </div>
+    );
+  };
+
+  // 收起状态
   if (!isExpanded) {
     return (
       <button
@@ -76,16 +127,59 @@ export default function ExcelContext({ context, isLoading }: ExcelContextProps) 
         aria-label="Expand Excel context"
         type="button"
       >
-        <Table24Regular className="excel-context-collapsed-icon" />
+        {context.isMultiSelect ? (
+          <Layer24Regular className="excel-context-collapsed-icon" />
+        ) : (
+          <Table24Regular className="excel-context-collapsed-icon" />
+        )}
         <span className="excel-context-collapsed-text">
-          {context.address} · {getCellInfo()}
+          {getRangesSummary()} · {context.totalCells.toLocaleString()} cells
         </span>
         <ChevronDown16Regular className="excel-context-chevron" />
       </button>
     );
   }
 
-  // Expanded view - compact version
+  // 展开状态 - 多区域
+  if (context.isMultiSelect) {
+    return (
+      <div className="excel-context expanded excel-context-multi" role="complementary" aria-label="Current Excel selection">
+        <div className="excel-context-header">
+          <div className="excel-context-icon">
+            <Layer24Regular />
+          </div>
+          <div className="excel-context-details">
+            <div className="excel-context-title">
+              <span className="excel-context-range">{context.ranges.length} 个区域</span>
+              <Badge appearance="tint" size="small">
+                {context.totalCells.toLocaleString()} cells
+              </Badge>
+            </div>
+            <div className="excel-context-ranges-list">
+              {context.ranges.slice(0, 3).map(r => r.address).join(', ')}
+              {context.ranges.length > 3 && `... +${context.ranges.length - 3}`}
+            </div>
+          </div>
+          <button
+            className="excel-context-collapse-btn"
+            onClick={() => setIsExpanded(false)}
+            aria-label="Collapse Excel context"
+            type="button"
+          >
+            <ChevronUp16Regular />
+          </button>
+        </div>
+
+        <div className="excel-context-ranges-container">
+          {context.ranges.map(renderRangeItem)}
+        </div>
+      </div>
+    );
+  }
+
+  // 展开状态 - 单区域（保持原有UI）
+  const firstRange = context.ranges[0];
+
   return (
     <div className="excel-context expanded" role="complementary" aria-label="Current Excel selection">
       <div className="excel-context-header">
@@ -114,16 +208,16 @@ export default function ExcelContext({ context, isLoading }: ExcelContextProps) 
         </button>
       </div>
 
-      {context.hasData && (
+      {context.hasData && firstRange && (
         <div className="excel-context-preview">
           <div className="excel-context-preview-label">Preview:</div>
-          <div className="excel-context-preview-content">{getPreviewData()}</div>
+          <div className="excel-context-preview-content">{getPreviewData(firstRange, context.totalCells)}</div>
         </div>
       )}
 
       {context.hasData &&
-        context.formulas &&
-        context.formulas.some((row) => row.some((f) => typeof f === 'string' && f.startsWith('='))) && (
+        firstRange?.formulas &&
+        firstRange.formulas.some((row) => row.some((f) => typeof f === 'string' && f.startsWith('='))) && (
           <Badge appearance="outline" size="small" className="excel-context-badge">
             Contains formulas
           </Badge>
